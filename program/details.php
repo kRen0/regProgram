@@ -18,7 +18,7 @@ class Module_Program extends Module {
 			),
 			'frontend' => TRUE,
 			'backend' => TRUE,
-			'menu' => 'content',
+			'menu' => 'program',
 			'author' => 'kReno',
 			
 			'sections' => array(
@@ -53,10 +53,10 @@ class Module_Program extends Module {
 			$this->settings->add($program_setting);
 		}
 		
-		$this->dbforge->drop_table('program');
+		$this->dbforge->drop_table('program_date');
 		$this->dbforge->drop_table('participants');
 		
-		$program = array(
+		$program_date = array(
             'id' => array(
             'type' => 'INT',
                 'constraint' => '11',
@@ -66,8 +66,8 @@ class Module_Program extends Module {
                 'type' => 'INT',
                 'constraint' => '11'
             ),
-            'open' => array(
-                'type' => 'BOOLEAN'
+            'date' => array(
+                'type' => 'DATE'
             ),
 			'LIMIT' => array(
                 'type' => 'INT',
@@ -75,11 +75,11 @@ class Module_Program extends Module {
             )
         );
 		
-		$this->dbforge->add_field($program);
+		$this->dbforge->add_field($program_date);
         $this->dbforge->add_key('id', TRUE);
 
         // Let's try running our DB Forge Table and inserting some settings
-        if ( ! $this->dbforge->create_table('program') )
+        if ( ! $this->dbforge->create_table('program_date') )
         {
             return FALSE;
         }
@@ -90,9 +90,15 @@ class Module_Program extends Module {
                 'constraint' => '11',
                 'auto_increment' => TRUE
             ),
+			'pdateID' => array(
+				'type' => 'INT',
+                'constraint' => '11',
+				'null' => TRUE,
+            ),
 			'recordID' => array(
 				'type' => 'INT',
-                'constraint' => '11'
+                'constraint' => '11',
+				'null' => TRUE,
             ),
             'LastName' => array(
                 'type' => 'VARCHAR',
@@ -113,6 +119,11 @@ class Module_Program extends Module {
 			'email' => array(
                 'type' => 'VARCHAR',
 				'constraint' => '100'
+            ),
+			'notified' => array(
+                'type' => 'INT',
+				'constraint' => '1',
+				'default' => 0
             )
         );
 		
@@ -124,6 +135,20 @@ class Module_Program extends Module {
         {
             return FALSE;
         }
+		
+		/*$sql =
+			"delimiter |
+			CREATE TRIGGER delete_program before delete ON {$this->db->dbprefix('blog')}
+			FOR EACH ROW BEGIN
+				DELETE FROM {$this->db->dbprefix('participants')} WHERE {$this->db->dbprefix('participants')}.recordID = OLD.id;
+				DELETE FROM {$this->db->dbprefix('program_date')} WHERE {$this->db->dbprefix('program_date')}.recordID = OLD.id;
+			END |
+			CREATE TRIGGER delete_program_date before delete ON {$this->db->dbprefix('program_date')}
+			FOR EACH ROW BEGIN
+				DELETE FROM {$this->db->dbprefix('participants')} WHERE {$this->db->dbprefix('participants')}.pdateID = OLD.id;
+			END |";
+		
+		$this->db->query($sql);	*/	
 		
 		return true;
 		
@@ -138,9 +163,12 @@ class Module_Program extends Module {
 	}
 	public function uninstall()
 	{
-		$this->dbforge->drop_table('program');
+		$this->dbforge->drop_table('program_date');
 		$this->dbforge->drop_table('participants');
 		$this->dropOldSettings($this->program_settings);
+		//$sql ="DROP TRIGGER delete_program;
+		//DROP TRIGGER delete_program_date;"; 
+		//$this->db->query($sql);
 		return TRUE;
 	}
 

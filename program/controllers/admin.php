@@ -14,14 +14,14 @@ class Admin extends Admin_Controller
 	
 	private $edit_validation_rules = array(
 		array(
-			'field' => 'status',
+			'field' => 'date[]',
 			'label' => 'lang:program.opened',
-			'rules' => 'trim|integer|required'
+			'rules' => 'trim'
 		),
 		array(
-			'field' => 'limit',
+			'field' => 'limit[]',
 			'label' => 'lang:program.limit',
-			'rules' => 'trim|integer|exact_length[65000]|required'
+			'rules' => 'integer'
 		)
 	);
 
@@ -41,7 +41,7 @@ class Admin extends Admin_Controller
 
 	*/
 	public function index(){
-		$program = $this->program_m->get_program(Settings::get('program_category'));
+		$program = $this->program_m->get_program(Settings::get('program_category'),true);
 		$this->template->build('admin/index',array( 'program' => $program ));
 	}
 	
@@ -75,34 +75,57 @@ class Admin extends Admin_Controller
 	if(isset($id)) {
 		$this->form_validation->set_rules($this->edit_validation_rules);
 		$program = $this->program_m->get_program_by_id($id);
-		$status = array (0=>lang('program.opened.n'),1=>lang('program.opened.y'));
+		$dates = $this->program_m->get_date_by_id($program->id);
+		/*$status = array (0=>lang('program.opened.n'),1=>lang('program.opened.y'));*/
+		
+		$post = $this->input->post();
+		
 		if ($this->form_validation->run()) {
-			if( $this->program_m->set($this->input->post(), $id)){
-				$this->session->set_flashdata('success', lang('program.edit_success'));
-                            redirect('admin/program');
-				return TRUE;
+			$D = $this->check_date($this->input->post('date'));
+			if($D !=NULL) {
+				if( $this->program_m->set($this->input->post(), $id, $D)){
+					$this->session->set_flashdata('success', lang('program.edit_success'));
+								redirect('admin/program');
+					return TRUE;
+				}
+				else 
+					{
+						$this->session->set_flashdata('error', lang('program.edit_error'));
+					}
 			}
+			else 
+				$this->session->set_flashdata('error', lang('program.editdate_error'));
 			
 		}
+
 		$this->template
 			->title($this->module_details['name'])
+			->append_metadata( js('http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.1/jquery-ui.min.js') )
+			->append_metadata( js('jquery.ui.datepicker-ru.js', 'program'))
 			->set('program',$program)
-			->set('status',$status)
+			->set('dates',$dates)
+			->set('post',$post)
 			->build('admin/view');
 	}
 	else redirect('admin/program');
 	}
 	
-	public function participants($slug=0){
+	public function participants($slug=0) {
 		$program = $this->program_m->get_program_by_id($slug);
-		$participants = $this->participants_m->get_by_rid($slug);
+		$dates = $this->program_m->get_date_by_id($slug,true);
+		$participants = array();
+		foreach ($dates AS $date)
+		$participants[$date->id] = $this->participants_m->get_by_did($date->id);
+		
+		$participants[0] = $this->participants_m->get_from_wait_list($slug);
 		
 		$this->template->set('program',$program)
+		->set('dates',$dates)
 		->set('participants',$participants)
 		->build('admin/participants');
 	}
 	
-	public function participants_del($id)
+	public function participants_del($id=NULL)
 	{	
 		$return = $this->input->post('record_id');
 		$ids = $this->input->post('action_to');
@@ -135,9 +158,31 @@ class Admin extends Admin_Controller
 	public function reset($id='')
 	{	
 		if($id!='') {
-		$this->program_m->set(array('status' => 1, 'limit' => 0), $id);
+		$dates = $this->program_m->get_date_by_id($id);
+		foreach($dates AS $date)
+			$this->participants_m->delete_by_did($date->id);
 		$this->participants_m->delete_by_rid($id);
+		
+		$this->program_m->set(array(), $id);
 		}
 		redirect('admin/program');
 	}
+	
+	private function check_date($dates)
+	{
+	if(!empty($dates)) {
+		$D=array();
+		foreach($dates AS $date) {
+		if (preg_match ("/^([0-9]{1,2}).([0-9]{1,2}).([0-9]{4})/", $date, $regs)) {
+			$D[] = "$regs[3]-$regs[2]-$regs[1]";
+		} else {
+			return NULL;
+		}
+		}
+		return $D;
+		}
+		return 1;
+	}
+
 }
+//Тест

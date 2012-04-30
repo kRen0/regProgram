@@ -9,6 +9,11 @@ class Program extends Public_Controller {
 	 
 	 private $register_validation_rules = array(	
 		array(
+			'field' => 'date',
+			'label' => 'lang:program.date',
+			'rules' => 'trim||required|numeric|max_length[11]'
+		),
+		array(
 			'field' => 'first_name',
 			'label' => 'lang:program.firstname',
 			'rules' => 'trim|min_length[1]|max_length[100]|required'
@@ -157,17 +162,27 @@ class Program extends Public_Controller {
 		
 		$open = false;
 		$count = $limit = 0;
-		if($this->open($post->id)) {
-		$program = $this->program_m->get_program_by_id($post->id);
-		$count = $program->p_count;
-		$limit = $program->LIMIT!='0'?$program->LIMIT:lang('program.no_limit.for_user');
-		$open = true;
+	
+		$dates = array();
+		
+		$D = $this->program_m->get_date_by_id($post->id);
+		
+		foreach ($D AS $date) {
+		$count_on_date = $this->participants_m->count_by_did($date->id);
+		$count += $count_on_date;
+		$limit += $date->LIMIT;
+		
+		if(!($date->LIMIT + 0 ) || $date->LIMIT > $count_on_date) {
+			$dates[$date->id] = $date->date;
+			$open = true;
+		}
 		}
 		
 		$this->template
 			->set_breadcrumb($post->title)
 			->set('post', $post)
 			->set('is_program', true)
+			->set('dates', $dates)
 			->set('open', $open)
 			->set('count', $count)
 			->set('limit', $limit)
@@ -180,11 +195,15 @@ class Program extends Public_Controller {
 	{
 		$this->form_validation->set_rules($this->register_validation_rules);
 		if ($this->form_validation->run()) {
-		if(!$this->open($this->input->post('id'))) {
+		if($this->input->post('date') != '0' AND !$this->open($this->input->post('id'))) {
 			$this->message('error', lang('program.reg_closed'), '/program/view/'.$slug);
 			return false;
 		}
-		if(!$this->participants_m->already_register($this->input->post('id'),$this->input->post('email'))) {
+		if($this->input->post('date') != '0' AND !$this->program_m->dateId_is_true($this->input->post('id'),$this->input->post('date'))) {
+			$this->message('error', lang('program.date_error'), '/program/view/'.$slug);
+			return false;
+		}
+		if(!$this->participants_m->already_register($this->input->post('date'),$this->input->post('email'),$this->input->post('id'))) {
 			if( $this->participants_m->insert($this->input->post()) ){
 				$this->message('success', lang('program.registration_success'), '/program/view/'.$slug);
 				return TRUE;
@@ -207,15 +226,37 @@ class Program extends Public_Controller {
 			$this->view($slug, true);
 		return FALSE;
 	}
+	public function calendar()
+	{
+			$dates = $this->program_m->get_all_date(Settings::get('program_category'));
+			
+			$profile = NULL;
+			$user_id = $this->session->userdata('user_id');
+			if(!empty($user_id))
+				$profile = $this->participants_m->get_user_data($user_id);
+			
+			$this->template
+			->append_metadata( css('core.css', 'program') )
+			->append_metadata( css('cupertino/jquery-ui.cupertino.css', 'program') )
+			->append_metadata( js('http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.1/jquery-ui.min.js'))
+			->append_metadata( js('jMonthCalendar.js', 'program') )
+			->append_metadata( js('jquery.simplemodal.js', 'program') )
+			->set('dates', $dates)
+			->set('profile', $profile)
+			->build('calendar');
+			
+	}
 	
 	private function open($id)
 	{
-		$program = $this->program_m->get_program_by_id($id);
-		$open = ($program->open+0)?true:false;
-		if( ($program->LIMIT + 0) && $program->p_count >= $program->LIMIT ) {
-			$open = false;
+		$program = $this->program_m->get_date_by_id($id);
+		if(!empty($program)) {
+		$count = $this->participants_m->count_by_did($program[0]->id);
+		if( !($program[0]->LIMIT + 0) || $program[0]->LIMIT > $count ) {
+			return true;
 		}
-		return $open;
+		}
+		return false;
 	}
 	private function message($status, $message, $redirect='', $data = Array())
 	{
@@ -252,4 +293,44 @@ class Program extends Public_Controller {
 			'description' => implode(', ', $description)
 		);
 	}
-}
+	
+	public function send_naty()
+	{
+	
+	if (isset($_SERVER['REMOTE_ADDR'])) die('Permission denied.');
+		$email_from = Settings::get("server_email");
+		//$email_from_name = 'Alexander Strigin';
+		$program_template = 'to_program';
+
+		
+		$participants = $this->participants_m->get_unnotifed_by_date(date('Y-m-d'));
+		
+		foreach($participants AS $participant) {
+		 $data['name']			= 'no-reply';
+				$data['slug'] 			= $program_template;
+				$data['participant']	= $participant->FirstName .' '. $participant->LastName;
+				$data['program']	= $participant->program;
+				$data['program_date']	= $participant->date;
+				
+
+				$data['to']				= $participant->email;
+				$data['from']			= $email_from;
+
+				$results = Events::trigger('email', $data, 'array');
+				
+						
+				foreach ($results as $result)
+				{
+					if ( ! $result)
+					{					
+						$this->session->set_flashdata('error', $result);
+					}
+					else {
+						$this->participants_m->check_as_notifed($participant->id);
+					}
+				}
+				
+		}
+		
+	}
+}//Тест

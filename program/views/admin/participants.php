@@ -1,13 +1,21 @@
 <section class="title">
-	<h4><?php echo isset($program->title)?$program->title:lang('participants.action_error'); ?></h4>
+	<h4><?php echo isset($program->title)?$program->title:lang('participants.action_error');//Тест ?></h4>
 	<h5><?php echo lang('participants.title'); ?></h5>
 </section>
 
 <section class="item">			
 	<div class="form_inputs">	
 		<?php echo form_open('admin/program/participants_del');?>
-		<?php if (!empty($participants)): ?>
+	<? if (!empty($dates)): ?>
+		<? foreach ($dates as $date): ?>
 		
+		<div class="blank-slate">
+				<div class="date">
+					<?php echo ($date->date!=NULL?$date->date:lang('date.in_wait_list')); ?>
+				</div>
+		</div>
+		
+		<?php if (!empty($participants[$date->id])): ?>
 			<table border="0" class="table-list">
 				<thead>
 					<tr>
@@ -22,7 +30,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					<?php foreach( $participants as $participant ): ?>
+					<?php foreach( $participants[$date->id] as $participant ): ?>
 					<tr>
 						<td><?=  form_checkbox('action_to[]', $participant->id); ?></td>
 						<td><a href="mailto:<?= $participant->email ?>"><?= $participant->email ?></a></td>
@@ -37,18 +45,25 @@
 					<?php endforeach; ?>
 				</tbody>
 			</table>
-		
-			<div class="table_action_buttons">
-				<?php $this->load->view('admin/partials/buttons', array('buttons' => array('delete') )); ?>
-			</div>
-		<input type="hidden" name="record_id" value="<?=$program->id; ?>">
-		<?= form_close(); ?>
 		<?php else: ?>
 			<div class="blank-slate">
 				<div class="no_data">
-					<?php echo lang('program.p_none'); ?>
+					<?php echo lang('program.pd_none'); ?>
 				</div>
 			</div>
 		<?php endif;?>
+		<? endforeach; ?>
+		<input type="hidden" name="record_id" value="<?=$program->id; ?>">
+			<div class="table_action_buttons">
+				<?php $this->load->view('admin/partials/buttons', array('buttons' => array('delete') )); ?>
+			</div>
+<?= form_close(); ?>
+	<? else: ?>
+		<div class="blank-slate">
+				<div class="no_data">
+					<?php echo lang('program.p_none'); ?>
+				</div>
+		</div>
+	<? endif; ?>	
 	</div>
 </section>

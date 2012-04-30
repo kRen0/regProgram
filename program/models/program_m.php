@@ -13,23 +13,29 @@ class Program_m extends MY_Model {
     public function get_program_list_view($categoryID)
     {
 		$this->db->select('title, slug, intro, COUNT('.$this->db->dbprefix('participants').'.id) AS p_count');
-		$this->db->join('participants', 'participants.recordID = blog.id', 'left');
-		$this->db->join('program', 'program.recordID = blog.id', 'left');
+		$this->db->join('program_date', 'program_date.recordID = blog.id', 'left');
+		$this->db->join('participants', 'participants.pdateID = program_date.id', 'left');
 		$this->db->where('category_id', $categoryID);
 		$this->db->group_by('blog.id');
-		$this->db->order_by('open', 'DESC');
+		$this->db->order_by('COUNT('.$this->db->dbprefix('program_date').'.id) > 0 AND (SUM(`LIMIT`) = 0 OR SUM(`LIMIT`) > COUNT('.$this->db->dbprefix('participants').'.id))', 'DESC');
 		$this->db->order_by('p_count', 'DESC');
 		$this->db->limit(5);
 		return $query = $this->db->get('blog')->result();
     }
 	
-	public function get_program($categoryID)
+	public function get_program($categoryID, $fake_date = false)
     {
-		$this->db->select('blog.id, title, slug, open, LIMIT, COUNT('.$this->db->dbprefix('participants').'.id) AS p_count');
+		$this->db->select('blog.id, title, slug, COUNT(`date`)>0 AS open, SUM(`LIMIT`) AS `LIMIT`, COUNT('.$this->db->dbprefix('participants').'.id) AS p_count, (MIN(`LIMIT`) < 1) AS unlimited'.
+		($fake_date?', COUNT(participants2.id) AS w_p_count':''));
 		$this->db->from('blog');
-		$this->db->join('program', 'program.recordID = blog.id', 'left');
-		$this->db->join('participants', 'participants.recordID = blog.id', 'left');
+		$this->db->join('program_date', 'program_date.recordID = blog.id', 'left');
+		$this->db->join('participants', 'participants.pdateID = program_date.id', 'left');
 		$this->db->where('category_id', $categoryID);
+		if ($fake_date)
+			{
+				$this->db->join('participants AS participants2', 'participants2.recordID = blog.id', 'left');
+				$this->db->or_where('participants2.pdateID', 'NULL');
+			}
 		$this->db->group_by('blog.id');
 		$this->db->order_by('title');
 		return $query = $this->db->get()->result();
@@ -37,14 +43,38 @@ class Program_m extends MY_Model {
 	
 	public function get_program_by_id($id)
     {
-		$this->db->select('blog.id, title, slug, open, LIMIT, COUNT('.$this->db->dbprefix('participants').'.id) AS p_count');
+		$this->db->select('blog.id, title, slug');
 		$this->db->from('blog');
-		$this->db->join('program', 'program.recordID = blog.id', 'left');
-		$this->db->join('participants', 'participants.recordID = blog.id', 'left');
 		$this->db->where('blog.id', $id);
 		$this->db->group_by('blog.id');
 		$this->db->order_by('title');
 		return $query = $this->db->get()->row();
+    }
+	
+	public function get_date_by_id($id, $fake_date = false)
+    {
+		$this->db->select('program_date.id, date, YEAR(`date`) AS year, MONTH(`date`) AS month,  DAY(`date`) AS day, LIMIT');
+		$this->db->from('program_date');
+		$this->db->where('program_date.RecordID', $id);
+		if($fake_date) {
+			$this->db->join('participants', 'participants.pdateID = program_date.id', 'right');
+			$this->db->or_where('participants.RecordID', $id);
+		}
+		$this->db->order_by('date');
+		return $query = $this->db->get()->result();
+    }
+	
+	public function get_all_date($categoryID)
+    {
+		$this->db->select('blog.id AS id, program_date.id AS dateID, date, LIMIT, title, intro');
+		$this->db->from('blog');
+		$this->db->join('program_date AS program_date', 'program_date.recordID = blog.id');
+		$this->db->where('category_id', $categoryID);
+		$this->db->where('status', 'live');
+		$this->db->where('(`LIMIT` = 0 OR `LIMIT` > (SELECT COUNT(participants.id) FROM '.$this->db->dbprefix('participants').' AS participants WHERE participants.pdateID = program_date.id) )');
+		$this->db->group_by('program_date.id');
+		$this->db->order_by('date');
+		return $query = $this->db->get()->result();
     }
     
 	public function get_categories()
@@ -53,25 +83,37 @@ class Program_m extends MY_Model {
                     ->get('blog_categories')->result();
     }
 	
-	public function set($input, $id){
+	public function set($input, $id, $dates = NULL){
 	
+	$count = 0;
+	$success = true;
+	$this->db->where('recordID', $id);
+	$this->db->where_not_in('date',$input['date']);
+	$this->db->delete('program_date');
+	$D = ($dates!=NULL?$dates:$input['date']);
+	foreach ($D AS $date) {
 	$this->where('recordID', $id);
-	$this->from('program');
+	$this->where('date', $date);
+	$this->from('program_date');
 	$is_set = $this->count_all_results();
 	if(!$is_set) {
-	return $this->db->insert('program', array(
+	$success =  ($this->db->insert('program_date', array(
 			'recordID'    => $id,
-			'open' => $input['status'],
-			'LIMIT' => $input['limit']
-		));
+			'date' => $date,
+			'LIMIT' => $input['limit'][$count]
+		)))?$success:false;
 	}
 	else {
 		$this->where('recordID', $id);
-	return $this->db->update('program', array(
-			'open' => $input['status'],
-			'LIMIT' => $input['limit']
-		));
+		$this->where('date', $date);
+	$success = ($success AND $this->db->update('program_date', array(
+			'date' => $date,
+			'LIMIT' => $input['limit'][$count]
+		)))?$success:false;
 	}
+	$count++;
+	}
+	return $success;
 	}
 	
 	function get_many_by($params = array())
@@ -82,16 +124,16 @@ class Program_m extends MY_Model {
 		blog_categories.id AS category_id,
 		blog_categories.slug AS category_slug,
 		blog_categories.title AS category_title,
-		count({$this->db->dbprefix('participants')}.recordID) AS p_count,
-		count({$this->db->dbprefix('comments')}.id) AS comments_count,
-		program.open,
-		program.LIMIT
+		count(participants.pdateID) AS p_count,
+		count(comments.id) AS comments_count,
+		COUNT(program.id) > 0 AND (SUM(`LIMIT`) = 0 OR SUM(`LIMIT`) > COUNT(participants.id)) AS open,
+		SUM(program.`LIMIT`) AS `LIMIT`
 		");
 		$this->db->from('blog');
 		$this->db->join('blog_categories', 'blog_categories.id=blog.category_id', 'left');
-		$this->db->join('program AS program', 'program.recordID=blog.id', 'left');
-		$this->db->join('participants', 'participants.recordID=blog.id', 'left');
-		$this->db->join('comments', 'comments.module_id=blog.id', 'left');
+		$this->db->join('program_date AS program', 'program.recordID=blog.id', 'left');
+		$this->db->join('participants AS participants', 'participants.pdateID=program.id', 'left');
+		$this->db->join('comments AS comments', 'comments.module_id=blog.id', 'left');
 		
 		if (!empty($params['category']))
 		{
@@ -147,4 +189,12 @@ class Program_m extends MY_Model {
 
 		return $this->db->get()->result();
 	}
-}
+	public function dateId_is_true($id, $date_id)
+    {
+		$this->db->from('program_date');
+		$this->db->where('RecordID', $id);
+		$this->db->where('id', $date_id);
+		$count = $this->db->count_all_results();
+		return $count>0;
+    }
+}//Тест
